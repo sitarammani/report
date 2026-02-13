@@ -580,6 +580,7 @@ import base64
 try:
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     GMAIL_API_AVAILABLE = True
 except Exception:
@@ -696,19 +697,21 @@ def send_via_gmail_api(creds, sender, recipient, msg):
     return service.users().messages().send(userId='me', body=body).execute()
 
 if send_email:
-    print("\nEmail Configuration:")
-    sender_email = input("  Sender email: ").strip()
+    print("\n" + "="*70)
+    print("EMAIL CONFIGURATION")
+    print("="*70)
+    sender_email = input("\nSender email: ").strip()
     if not validate_email(sender_email):
-        print(f"  ✗ Invalid sender email format: {sender_email}")
+        print(f"❌ Invalid email format: {sender_email}")
         send_email = False
     else:
-        recipient_email = input("  Recipient email: ").strip()
+        recipient_email = input("Recipient email: ").strip()
         if not validate_email(recipient_email):
-            print(f"  ✗ Invalid recipient email format: {recipient_email}")
+            print(f"❌ Invalid email format: {recipient_email}")
             send_email = False
     
     if not send_email:
-        print("  Skipping email...")
+        print("Skipping email delivery.")
 
 if send_email:
     # Build email content
@@ -743,46 +746,99 @@ if send_email:
     part.add_header("Content-Disposition", f"attachment; filename= {OUTPUT_FILE}")
     msg.attach(part)
 
-    # Ask whether to use Gmail OAuth2
-    use_oauth = False
-    if GMAIL_API_AVAILABLE and os.path.exists('credentials.json'):
-        print("  Use Gmail OAuth2 (recommended)? (y/n): ", end="")
-        use_oauth = input().strip().lower() == 'y'
-    elif GMAIL_API_AVAILABLE:
-        print("\n  ⓘ Gmail OAuth2 requires credentials.json")
-        print("    See GMAIL_OAUTH_SETUP.md for setup instructions")
-        print("    Or use SMTP with your email password instead")
-
-    if use_oauth:
-        try:
-            creds = get_gmail_credentials()
-            send_via_gmail_api(creds, sender_email, recipient_email, msg)
-            print(f"✓ Email sent successfully to {recipient_email} via Gmail API")
-        except Exception as e:
-            print(f"✗ Error sending email via Gmail API: {e}")
-            print(f"  Falling back to SMTP...")
-            use_oauth = False
+    # ========================================================
+    # AUTHENTICATION METHOD SELECTION
+    # ========================================================
+    print("\n" + "-"*70)
+    print("Authentication Method (RECOMMENDED: OAuth2)")
+    print("-"*70)
     
-    if not use_oauth and send_email:
-        # Fallback to SMTP
-        print("\n  SMTP Configuration (Gmail or other provider):")
-        print("  ⚠️  Password will not be displayed on screen for security")
-        sender_password = getpass.getpass("    Password (or app password): ").strip()
-        smtp_host = input("    SMTP host [default: smtp.gmail.com]: ").strip() or "smtp.gmail.com"
-        smtp_port = input("    SMTP port [default: 465]: ").strip() or "465"
+    use_oauth = True
+    auth_method = "oauth"
+    
+    if not GMAIL_API_AVAILABLE:
+        print("⚠️  Gmail OAuth2 not available (missing dependencies)")
+        print("Falling back to SMTP email...")
+        use_oauth = False
+    elif not os.path.exists('credentials.json'):
+        print("\n📝 OAuth2 Requires Setup (First Time Only)")
+        print("\nTo use OAuth2, place 'credentials.json' in this folder:")
+        print("  1. Go to: https://console.cloud.google.com/")
+        print("  2. Create OAuth 2.0 Client ID (Desktop app)")
+        print("  3. Download JSON file → save as 'credentials.json'")
+        print("\nUse SMTP instead? (Gmail App Password - simpler)")
+        choice = input("\nUse OAuth2 (requires setup) or SMTP? [oauth/smtp]: ").strip().lower()
+        
+        if choice in ['oauth', 'o']:
+            print("❌ Cannot proceed without credentials.json")
+            print("   Please set up OAuth credentials and try again.")
+            send_email = False
+            use_oauth = False
+        else:
+            use_oauth = False
+            auth_method = "smtp"
+    else:
+        print("✅ OAuth2 credentials found")
+        print("\n🔐 Secure Email Authentication")
+        print("A browser window will open for you to authorize Gmail access.")
+        print("No passwords will be stored or transmitted unsecurely.\n")
+
+    # ========================================================
+    # OAUTH2 METHOD (RECOMMENDED)
+    # ========================================================
+    if send_email and use_oauth:
         try:
-            smtp_port = int(smtp_port)
-            print(f"\n  Connecting to {smtp_host}:{smtp_port}...")
-            with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-                server.login(sender_email, sender_password)
-                server.send_message(msg)
-            print(f"✓ Email sent successfully to {recipient_email}")
+            print("⏳ Authenticating with Gmail OAuth2...")
+            creds = get_gmail_credentials()
+            print("✓ Authentication successful!")
+            
+            print(f"📧 Sending email to {recipient_email}...")
+            send_via_gmail_api(creds, sender_email, recipient_email, msg)
+            print(f"✅ Email sent successfully!\n")
+            
         except Exception as e:
-            print(f"✗ Error sending email: {e}")
-            print(f"  Troubleshooting tips:")
-            print(f"    - For Gmail: Use an App Password, not your account password")
-            print(f"    - Check SMTP host and port are correct")
-            print(f"    - Ensure 'Less secure apps' is enabled (if applicable)")
+            print(f"❌ OAuth2 failed: {e}")
+            print("\n⚠️  Falling back to SMTP (App Password)...")
+            use_oauth = False
+            auth_method = "smtp"
+    
+    # ========================================================
+    # SMTP FALLBACK (App Password)
+    # ========================================================
+    if send_email and not use_oauth:
+        print("\n" + "-"*70)
+        print("Gmail SMTP Configuration (Using App Password)")
+        print("-"*70)
+        print("\n📝 Setup Instructions (First Time Only):")
+        print("  1. Go to: https://myaccount.google.com/apppasswords")
+        print("  2. Select: Mail → Your Device Type")
+        print("  3. Google generates a 16-character password")
+        print("  4. Copy and paste it below (won't display on screen)")
+        print("\n🔒 Security Note: This password only works for email")
+        
+        try:
+            sender_password = getpass.getpass("\nPaste your Gmail App Password: ").strip()
+            
+            if not sender_password:
+                print("❌ No password provided")
+                send_email = False
+            else:
+                smtp_host = "smtp.gmail.com"
+                smtp_port = 587
+                
+                print(f"\n⏳ Connecting to {smtp_host}:{smtp_port}...")
+                with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+                    server.login(sender_email, sender_password)
+                    server.send_message(msg)
+                print(f"✅ Email sent successfully to {recipient_email}!\n")
+                
+        except Exception as e:
+            print(f"❌ Error sending email: {e}")
+            print("\n💡 Troubleshooting:")
+            print("   - Is the App Password correct? (16 characters)")
+            print("   - Did you enable 2-Step Verification on Google Account?")
+            print("   - Try creating a new App Password")
+            print("   - Check your internet connection")
 
 # -------------------------------------------------------------------
 # 11. Print Summary

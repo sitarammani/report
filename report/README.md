@@ -35,19 +35,55 @@ cd report
 python generate_reports_email.py
 ```
 
-## Gmail OAuth2 Setup
+## 📧 Email Authentication
 
-This is optional but recommended for security:
+The app uses **Gmail OAuth2 (recommended)** for secure email delivery.
 
-1) Create Google OAuth client credentials (one-time per user):
-- Visit https://console.cloud.google.com/
-- Create or select a project and enable the Gmail API
-- Create OAuth 2.0 Client ID credentials → Application type: "Desktop app"
-- Download the JSON and save it as `credentials.json` in the same folder as the executable or script
+### Option 1: OAuth2 (RECOMMENDED - Secure & Easy)
 
-2) When prompted:
-- When asked to send the report via email, enter `y`.
-- When asked "Use Gmail OAuth2 (recommended)?", enter `y`.
+**Setup (One-Time Only):**
+
+1. Visit: https://console.cloud.google.com/
+2. Create a new project (or use existing)
+3. Enable Gmail API: Search "Gmail API" → Enable
+4. Create OAuth credentials:
+   - Click "Create Credentials"
+   - Select "OAuth 2.0 Client ID"
+   - Application type: "Desktop application"
+5. Download the JSON file
+6. Save as `credentials.json` in the app folder
+
+**When You Run the App:**
+- When asked about email, select "oauth"
+- A browser window opens automatically
+- Click "Allow" to authorize
+- Done! No passwords stored ✅
+
+**Benefits:**
+- ✅ No passwords in the app
+- ✅ Full app control in Google Account
+- ✅ Secure OAuth tokens
+- ✅ Can revoke access anytime
+
+### Option 2: Gmail App Password (Fallback)
+
+If you don't want to set up OAuth2, use an app-specific password:
+
+1. Go to: https://myaccount.google.com/apppasswords
+2. Select: Mail → Your Device Type
+3. Google generates a 16-character password
+4. Copy and paste into the app when prompted
+
+**Note:** OAuth2 is more secure, but this works if you prefer simplicity.
+
+## Security Best Practices
+
+⚠️ **IMPORTANT:** Keep your credentials secure!
+
+- **Never commit** `credentials.json` or `token.json` to version control
+- **Keep OAuth tokens private** - anyone with them can send emails on your behalf
+- **Use OAuth2 (recommended)** instead of storing passwords
+- **Delete old tokens** if they are compromised
 - A browser window will open to complete Google sign-in and consent; after that a `token.json` file will be saved for reuse.
 
 ## Security Best Practices
