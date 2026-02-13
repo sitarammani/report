@@ -898,3 +898,18 @@ else:
     print("\nNo transactions over $200")
 
 print("\n")
+
+# -------------------------------------------------------------------
+# 12. Suggest Using LLM for Natural Language Analysis
+# -------------------------------------------------------------------
+print("="*70)
+print("💡 TIP: Ask questions about your spending with AI!")
+print("="*70)
+print("\nUse Natural Language Query to analyze your data:")
+print("\n  python3 natural_language_query.py")
+print("\nExample questions:")
+print('  • "How much did I spend on education?"')
+print('  • "What\'s my highest spending category?"')
+print('  • "Analyze my spending patterns and suggest savings"')
+print("\nRuns completely locally - no API keys or internet needed!")
+print("="*70 + "\n")
