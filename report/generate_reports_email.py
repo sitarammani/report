@@ -165,62 +165,73 @@ def normalize_vendor(desc: str) -> str:
     return d.split()[0] if d else ""
 
 # -------------------------------------------------------------------
-# 2. Category mapping
+# 2. Rule-based category mapping with override support
 # -------------------------------------------------------------------
+# Cache for category rules (loaded once on first use)
+_category_rules_cache = None
+
+def load_category_rules():
+    """Load categorization rules from CSV file with override support."""
+    global _category_rules_cache
+    
+    if _category_rules_cache is not None:
+        return _category_rules_cache
+    
+    rules_file = "category_rules.csv"
+    
+    # Try to find rules file in multiple locations
+    if not os.path.exists(rules_file):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        rules_file = os.path.join(script_dir, "category_rules.csv")
+    
+    rules = []
+    try:
+        rules_df = pd.read_csv(rules_file)
+        for _, row in rules_df.iterrows():
+            # Handle optional fields
+            override_id = row.get('OverrideRuleID', '') if 'OverrideRuleID' in row else ''
+            is_custom = row.get('IsCustom', 'No') if 'IsCustom' in row else 'No'
+            
+            override_id = '' if pd.isna(override_id) else override_id
+            
+            rules.append({
+                'rule_id': row['RuleID'],
+                'priority': int(row['Priority']),
+                'vendor_pattern': row['VendorPattern'].upper(),
+                'category': row['Category'],
+                'explanation': row['Explanation'],
+                'override_rule_id': override_id,
+                'is_custom': is_custom
+            })
+        # Sort by priority (descending) so highest priority rules are evaluated first
+        rules.sort(key=lambda x: x['priority'], reverse=True)
+        _category_rules_cache = rules
+        return rules
+    except Exception as e:
+        print(f"Warning: Could not load category rules: {e}")
+        return []
+
 def categorize_vendor(vendor: str) -> str:
+    """Categorize vendor using rule-based system with override support.
+    
+    Rules are evaluated in priority order:
+    1. Higher priority rules are checked first
+    2. User-defined (custom) rules with overrides take precedence
+    3. Returns category from first matching rule
+    """
     v = vendor.upper()
-
-    groceries = {
-        "KROGER", "INDIFRESH", "CHERIANS INTERNATIONAL",
-        "FRESH MEAT IN MART", "WEGMANS", "PUBLIX",
-        "FCS FOOD AND NUTRITION", "COSTCO", "PATEL BROTHERS"
-    }
-
-    restaurants = {
-        "TACO BELL", "DOMINOS", "SUBWAY", "CHIPOTLE",
-        "MCDONALDS", "DESI DISTRICT", "NALAN INDIAN CUISINE",
-        "DUNKIN"
-    }
-
-    shopping = {
-        "AMAZON", "BESTBUY", "TARGET", "WALMART",
-        "TJ MAXX", "BEAUTY AMBASSADORS", "TANISHQ", "ROSS", "DOLLAR TREE"
-    }
-
-    auto_gas = {"COSTCO GAS", "KROGER FUEL", "SHELL", "WAWA"}
-
-    utilities = {
-        "COMCAST", "TMOBILE", "SAWNEE ELECTRIC",
-        "CONSTELLATION ENERGY", "TELLO", "TRAVELERS-GEICO",
-        "AAA LIFE INSURANCE", "FC WATER&SEWER",
-        "RED OAK SANITATION", "ATGPAY", "NSM DBAMR.COOPER"
-    }
-
-    health = {"TELADOC", "EMORY CLINIC"}
-
-    entertainment = {
-        "AMC", "URBAN AIR", "HAWKMUSIC ACADEMY", "LEAGUE TENNIS", "FORSYTH COUNTY PARKS"
-    }
-
-    home_services = {"HOME DEPOT", "WWP GOT BUGS"}
-
-    if v in groceries:
-        return "Groceries & Markets"
-    if v in restaurants:
-        return "Restaurants & Food"
-    if v in auto_gas:
-        return "Auto & Gas"
-    if v in utilities:
-        return "Utilities Bills & Insurance"
-    if v in health:
-        return "Health"
-    if v in entertainment:
-        return "Entertainment"
-    if v in home_services:
-        return "Home & Services"
-    if v in shopping:
-        return "Shopping & Retail"
-
+    rules = load_category_rules()
+    
+    # Evaluate each rule in priority order
+    for rule in rules:
+        pattern = rule['vendor_pattern']
+        # Use regex matching for flexibility
+        if re.match(f".*{re.escape(pattern)}.*", v):
+            # Rule matched! Return its category
+            # (If this rule overrides another, it was given higher priority)
+            return rule['category']
+    
+    # Fallback to "Shopping & Retail" if no rules match
     return "Shopping & Retail"
 
 # -------------------------------------------------------------------
@@ -433,16 +444,37 @@ print(f"\n✓ Total transactions loaded: {len(all_txns)}")
 # -------------------------------------------------------------------
 # 8. Build Reports
 # -------------------------------------------------------------------
-category_order = [
-    "Groceries & Markets",
-    "Restaurants & Food",
-    "Shopping & Retail",
-    "Auto & Gas",
-    "Utilities Bills & Insurance",
-    "Health",
-    "Entertainment",
-    "Home & Services"
-]
+
+# Load category order dynamically from categories.csv
+try:
+    categories_file = os.path.join(os.path.dirname(__file__), "categories.csv")
+    if os.path.exists(categories_file):
+        cats_df = pd.read_csv(categories_file)
+        category_order = cats_df["CategoryName"].tolist()
+    else:
+        # Fallback if categories.csv doesn't exist
+        category_order = [
+            "Groceries & Markets",
+            "Restaurants & Food",
+            "Shopping & Retail",
+            "Auto & Gas",
+            "Utilities Bills & Insurance",
+            "Health",
+            "Entertainment",
+            "Home & Services"
+        ]
+except:
+    # Fallback on any error
+    category_order = [
+        "Groceries & Markets",
+        "Restaurants & Food",
+        "Shopping & Retail",
+        "Auto & Gas",
+        "Utilities Bills & Insurance",
+        "Health",
+        "Entertainment",
+        "Home & Services"
+    ]
 
 # Report 1: Category → Vendor totals
 report1_rows = []
