@@ -1,35 +1,139 @@
-# Spending Report Generator — Email with Gmail OAuth2
+# 💰 Spending Report & Analysis System
 
-This folder contains `generate_reports_email.py` which generates spending reports (CSV/PDF inputs) and can email the report. Below are simple steps so any user can run the program with their own Google account (no app password required).
+A comprehensive personal finance management application with AI-powered insights, automated report generation, and secure email delivery. Built with Python and featuring local LLM integration for intelligent spending analysis.
 
-1) Install dependencies (use a virtualenv):
+## ✨ Features
 
+- 📊 **Automated Report Generation** - Process CSV/PDF bank statements into Excel reports
+- 🤖 **AI-Powered Analysis** - Local LLM queries for spending insights and recommendations
+- 📧 **Secure Email Delivery** - Gmail OAuth2 integration (no passwords stored)
+- 📈 **Category Management** - Customizable spending categories and rules
+- 📊 **Performance Metrics** - Track system usage and AI inference statistics
+- 🔒 **Privacy-First** - All processing done locally, no data sent to external servers
+- 🖥️ **Cross-Platform** - Works on Windows, macOS, and Linux
+
+## 🚀 Quick Start
+
+### Option 1: Pre-built Executable (Easiest)
+
+**For End Users:**
+1. Download the appropriate executable for your platform from [Releases](../../releases)
+2. Extract the zip file
+3. Double-click the executable (`budgetapp` on macOS/Linux, `budgetapp.exe` on Windows)
+4. No installation required!
+
+### Option 2: Run from Source
+
+**Prerequisites:**
+- Python 3.7+
+- Ollama (for AI features)
+
+**Setup:**
 ```bash
+# Navigate to the report directory
+cd report
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Run the application
+python start.py
 ```
 
-2) Create Google OAuth client credentials (one-time per user):
-- Visit https://console.cloud.google.com/
-- Create or select a project and enable the Gmail API
-- Create OAuth 2.0 Client ID credentials → Application type: "Desktop app"
-- Download the JSON and save it as `credentials.json` in this `report/` folder
+## 📋 Main Menu Options
 
-3) Run the script and choose Gmail OAuth2 when prompted:
+1. **📊 Generate Spending Report** - Create Excel reports from bank statements
+2. **🤖 AI Assistant & Analysis** - Natural language queries about spending
+3. **⚙️ Manage Categories & Rules** - Customize categorization
+4. **📈 View Category Hierarchy** - See category relationships
+5. **📤 Export Custom Rules** - Backup your customizations
+6. **ℹ️ Help & Documentation** - View guides
+7. **📈 Performance Summary** - View system metrics
 
+## 🔧 Building from Source
+
+### Automated Builds (GitHub Actions)
+The repository includes automated cross-platform builds. Push to `main` branch to trigger builds for Windows, macOS, and Linux.
+
+### Manual Build
 ```bash
 cd report
-python generate_reports_email.py
+
+# Install PyInstaller
+pip install pyinstaller
+
+# Build the application
+pyinstaller --clean budgetapp.spec
+
+# Find the executable in dist/budgetapp/
 ```
 
-- When asked to send the report via email, enter `y`.
-- When asked "Use Gmail OAuth2 (recommended)?", enter `y`.
-- A browser window will open to complete Google sign-in and consent; after that a `token.json` file will be saved for reuse.
+## 📧 Gmail Integration Setup
 
-Notes
-- Each user should create or reuse their own `credentials.json` and will receive their own `token.json` after the OAuth flow.
-- If you prefer not to use OAuth, choose `n` to use the SMTP fallback (requires SMTP credentials).
-- Keep `credentials.json` and `token.json` private.
+The application uses Gmail OAuth2 for secure email delivery.
 
-If you'd like, I can also:
-- Add a helper script that checks for `credentials.json` in common locations, or
-- Add a small `setup_oauth.sh` with step-by-step commands to help create the OAuth client.
+### Automatic Setup (Recommended)
+The application includes bundled OAuth credentials. Simply run the app and follow the prompts.
+
+### Manual Setup (If Needed)
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create/select a project
+3. Enable Gmail API
+4. Create OAuth 2.0 credentials (Desktop application)
+5. Download `credentials.json`
+6. Place in the `report/` directory
+
+## 🤖 AI Features Setup
+
+The app uses Ollama for local AI processing:
+
+```bash
+# Install Ollama
+# macOS: brew install ollama
+# Windows/Linux: Download from https://ollama.ai
+
+# Start Ollama service
+ollama serve
+
+# Pull the required model (done automatically by the app)
+ollama pull mistral
+```
+
+## 🔒 Security & Privacy
+
+- **No data sent externally** - All processing is local
+- **OAuth2 authentication** - Secure token-based email access
+- **Local LLM** - AI processing without cloud dependency
+- **Credential protection** - Sensitive files excluded from version control
+
+## 🛠️ Project Structure
+
+```
+report/
+├── start.py              # Application launcher
+├── app.py                # Main menu interface
+├── spending_lm.py        # LLM integration
+├── generate_reports_email.py  # Report generation
+├── natural_language_query.py  # AI query interface
+├── manage_rules.py       # Category/rule management
+├── gmail_auth.py         # Email authentication
+├── categories.csv        # Category data
+├── category_rules.csv    # Rule data
+├── budgetapp.spec        # PyInstaller spec
+└── requirements.txt      # Python dependencies
+```
+
+## 📋 Requirements
+
+- Python 3.7+
+- Ollama (for AI features)
+- Gmail account (for email features)
+- 4GB+ RAM recommended
+
+---
+
+**Built with ❤️ for personal finance management**
