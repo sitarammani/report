@@ -1,0 +1,39 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Distribution / build
+build/
+dist/
+*.egg-info/
+*.dmg
+*.app/
+
+# PyInstaller
+*.spec
+
+# Test and coverage
+.pytest_cache/
+.coverage
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Credentials / tokens
+credentials.json
+token.json
+
+
+# Misc
+*.pyc
+*.pyo
+.gmail_oauth_config
