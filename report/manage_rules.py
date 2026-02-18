@@ -12,8 +12,8 @@ import os
 import sys
 from datetime import datetime
 
-RULES_FILE = "category_rules.csv"
-CATEGORIES_FILE = "categories.csv"
+RULES_FILE = os.path.join(os.path.dirname(__file__), "category_rules.csv")
+CATEGORIES_FILE = os.path.join(os.path.dirname(__file__), "categories.csv")
 BACKUP_EXT = ".backup"
 
 def load_rules():

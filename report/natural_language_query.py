@@ -89,7 +89,7 @@ GETTING HELP:
 
 """)
 
-if __name__ == "__main__":
+def main():
     print_banner()
     
     # Check if this is first time
@@ -104,3 +104,6 @@ if __name__ == "__main__":
         # Pass through to spending_lm
         from spending_lm import main
         main()
+
+if __name__ == "__main__":
+    main()

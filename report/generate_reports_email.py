@@ -10,6 +10,9 @@ import os
 import getpass
 from datetime import datetime
 from pathlib import Path
+import argparse
+from metrics_logger import get_metrics_logger
+from transaction_logger import get_transaction_logger
 
 # -------------------------------------------------------------------
 # Security & Validation Functions
@@ -28,14 +31,24 @@ def validate_directory_path(dir_path: str) -> bool:
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--dir", dest="cli_dir", help="Directory containing statements")
+parser.add_argument("--files", dest="cli_files", help="Comma-separated file indices (1-based) or 'all'")
+parser.add_argument("--month", dest="cli_month", help="Month for report in MM/YYYY")
+parser.add_argument("--send-email", dest="cli_send_email", action="store_true", help="Send report via email if available")
+args, _ = parser.parse_known_args()
+
 print("\n" + "="*70)
 print("SPENDING REPORT GENERATOR")
 print("="*70)
 
-# Ask for directory
-print("\nEnter the directory path containing CSV/PDF statement files:")
-print("  (e.g., /Users/janani/Desktop/sitapp/jan)")
-dir_path = input("> ").strip()
+# Determine directory (CLI takes precedence)
+if args.cli_dir:
+    dir_path = args.cli_dir
+else:
+    print("\nEnter the directory path containing CSV/PDF statement files:")
+    print("  (e.g., /Users/janani/Desktop/sitapp/jan)")
+    dir_path = input("> ").strip()
 
 if not dir_path:
     print("No directory specified. Using current directory.")
@@ -60,29 +73,43 @@ if not available_files:
     print("  No CSV or PDF files found in this directory!")
     exit(1)
 
-# Ask user which files to process
-print(f"\nFound {len(available_files)} file(s).")
-print("Enter file numbers to process (comma-separated), or press Enter for all:")
-for i, f in enumerate(available_files, 1):
-    print(f"  {i}. {Path(f).name}")
-file_input = input("> ").strip()
-
-if file_input:
-    try:
-        indices = [int(x.strip()) - 1 for x in file_input.split(",")]
-        file_paths = [available_files[i] for i in indices if 0 <= i < len(available_files)]
-    except ValueError:
-        print("Invalid input. Processing all files.")
+# Determine files to process (CLI or interactive)
+if args.cli_files:
+    if args.cli_files.lower() == 'all':
         file_paths = available_files
+    else:
+        try:
+            indices = [int(x.strip()) - 1 for x in args.cli_files.split(",")]
+            file_paths = [available_files[i] for i in indices if 0 <= i < len(available_files)]
+        except Exception:
+            print("Invalid --files argument; processing all files.")
+            file_paths = available_files
 else:
-    file_paths = available_files
+    print(f"\nFound {len(available_files)} file(s).")
+    print("Enter file numbers to process (comma-separated), or press Enter for all:")
+    for i, f in enumerate(available_files, 1):
+        print(f"  {i}. {Path(f).name}")
+    file_input = input("> ").strip()
+
+    if file_input:
+        try:
+            indices = [int(x.strip()) - 1 for x in file_input.split(",")]
+            file_paths = [available_files[i] for i in indices if 0 <= i < len(available_files)]
+        except ValueError:
+            print("Invalid input. Processing all files.")
+            file_paths = available_files
+    else:
+        file_paths = available_files
 
 print(f"\nFiles to process:")
 for f in file_paths:
     print(f"  - {f}")
 
-# Ask for month
-month_input = input("\nEnter the month for the report (MM/YYYY): ").strip()
+# Determine month (CLI or interactive)
+if args.cli_month:
+    month_input = args.cli_month
+else:
+    month_input = input("\nEnter the month for the report (MM/YYYY): ").strip()
 
 parts = month_input.split("/")
 if len(parts) != 2:
@@ -222,13 +249,34 @@ def categorize_vendor(vendor: str) -> str:
     v = vendor.upper()
     rules = load_category_rules()
     
+    # Track matching rules for conflict detection
+    matching_rules = []
+    
     # Evaluate each rule in priority order
     for rule in rules:
         pattern = rule['vendor_pattern']
         # Use regex matching for flexibility
         if re.match(f".*{re.escape(pattern)}.*", v):
+            matching_rules.append({
+                'rule_id': rule.get('RuleID', '?'),
+                'category': rule['category'],
+                'priority': rule.get('Priority', 0)
+            })
             # Rule matched! Return its category
             # (If this rule overrides another, it was given higher priority)
+            
+            # Log metrics
+            metrics = get_metrics_logger()
+            metrics.log_hash_stability_check(
+                vendor, rule['category'], 
+                rule.get('RuleID', '?'),
+                rule.get('Priority', 0)
+            )
+            
+            # Log conflict if multiple rules matched
+            if len(matching_rules) > 1:
+                metrics.log_conflict_detected(vendor, matching_rules)
+            
             return rule['category']
     
     # Fallback to "Shopping & Retail" if no rules match
@@ -371,7 +419,17 @@ def load_any_statement(path):
         df = df[~df["description"].apply(is_income_or_transfer)]
         df = filter_to_month(df, "date")
         df["vendor"] = df["description"].apply(normalize_vendor)
+        
+        # Log categorization start
+        metrics = get_metrics_logger()
+        metrics.log_categorization_start(len(df))
+        
+        # Categorize vendors
         df["category"] = df["vendor"].apply(categorize_vendor)
+        
+        # Log categorization complete
+        metrics.log_categorization_complete()
+        
         return df[["date", "vendor", "category", "amount"]]
 
     # FORMAT 2: Credit Card Type A (Posted Date, Payee, Amount)
@@ -386,7 +444,17 @@ def load_any_statement(path):
         df = df[~df["description"].apply(is_income_or_transfer)]
         df = filter_to_month(df, "date")
         df["vendor"] = df["description"].apply(normalize_vendor)
+        
+        # Log categorization start
+        metrics = get_metrics_logger()
+        metrics.log_categorization_start(len(df))
+        
+        # Categorize vendors
         df["category"] = df["vendor"].apply(categorize_vendor)
+        
+        # Log categorization complete
+        metrics.log_categorization_complete()
+        
         return df[["date", "vendor", "category", "amount"]]
 
     # FORMAT 3: Credit Card Type B (Date, Description, Credit, Debit)
@@ -398,7 +466,17 @@ def load_any_statement(path):
         df = df[~df["description"].apply(is_income_or_transfer)]
         df = filter_to_month(df, "date")
         df["vendor"] = df["description"].apply(normalize_vendor)
+        
+        # Log categorization start
+        metrics = get_metrics_logger()
+        metrics.log_categorization_start(len(df))
+        
+        # Categorize vendors
         df["category"] = df["vendor"].apply(categorize_vendor)
+        
+        # Log categorization complete
+        metrics.log_categorization_complete()
+        
         return df[["date", "vendor", "category", "amount"]]
 
     # FORMAT 4: PDF extraction (Date, Description, Amount)
@@ -412,7 +490,17 @@ def load_any_statement(path):
         df = df[~df["description"].apply(is_income_or_transfer)]
         df = filter_to_month(df, "date")
         df["vendor"] = df["description"].apply(normalize_vendor)
+        
+        # Log categorization start
+        metrics = get_metrics_logger()
+        metrics.log_categorization_start(len(df))
+        
+        # Categorize vendors
         df["category"] = df["vendor"].apply(categorize_vendor)
+        
+        # Log categorization complete
+        metrics.log_categorization_complete()
+        
         return df[["date", "vendor", "category", "amount"]]
 
     raise ValueError(f"Unrecognized format in file: {path}")
@@ -440,6 +528,23 @@ all_txns.columns = ["Date", "Vendor", "Category", "Amount"]
 all_txns["ParsedDate"] = all_txns["Date"].astype(str).apply(parse_date_safe)
 
 print(f"\n✓ Total transactions loaded: {len(all_txns)}")
+
+# Log transactions to monthly archive for later comparison
+try:
+    tx_logger = get_transaction_logger()
+    logged_count = tx_logger.log_transactions_batch(
+        all_txns,
+        date_column='Date',
+        vendor_column='Vendor',
+        amount_column='Amount',
+        category_column='Category'
+    )
+    if logged_count > 0:
+        print(f"✓ Logged {logged_count} transactions to monthly archive")
+        # Save logs to disk
+        tx_logger.save_monthly_logs()
+except Exception as e:
+    print(f"⚠️  Note: Could not log transactions to archive: {e}")
 
 # -------------------------------------------------------------------
 # 8. Build Reports
@@ -518,6 +623,42 @@ report2_df = pd.DataFrame(report2_rows[1:], columns=report2_rows[0])
 # Report 3: Transactions > $200
 report3_df = all_txns[all_txns["Amount"].abs() > 200].copy()
 report3_df = report3_df.sort_values("ParsedDate")
+
+# -----------------------------
+# Console summary for quick view
+# -----------------------------
+try:
+    print("\n" + "="*70)
+    print("📋 TRANSACTION SUMMARY")
+    print("="*70)
+
+    total_txns = len(all_txns)
+    print(f"Total transactions considered: {total_txns}")
+
+    if grand_total == 0 or total_txns == 0:
+        print("No transactions found for the selected month.")
+    else:
+        print(f"Grand total: {grand_total:.2f}\n")
+
+        print("By Category:")
+        for cat, total in cat_totals:
+            pct = abs(total) / abs(grand_total) * 100 if grand_total != 0 else 0
+            print(f"  - {cat}: {total:.2f} ({pct:.2f}%)")
+
+        print("\nTop vendors:")
+        top_vendors = (
+            all_txns.groupby('Vendor')['Amount']
+            .sum()
+            .abs()
+            .sort_values(ascending=False)
+            .head(5)
+        )
+        for v, amt in top_vendors.items():
+            print(f"  - {v}: {amt:.2f}")
+
+    print("" + "="*70 + "\n")
+except Exception:
+    pass
 
 # -------------------------------------------------------------------
 # 9. Write Excel
@@ -601,132 +742,24 @@ except Exception as e:
 # -------------------------------------------------------------------
 # 10. Email sending (optional)
 # -------------------------------------------------------------------
-import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
-import base64
+from gmail_auth import GmailAuth
+import getpass
 
-# Optional Gmail API imports (for OAuth2)
-try:
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-    GMAIL_API_AVAILABLE = True
-except Exception:
-    GMAIL_API_AVAILABLE = False
+import sys
 
-print("\nWould you like to send this report via email? (y/n): ", end="")
-send_email = input().strip().lower() == 'y'
-
-def get_gmail_credentials():
-    """Load or run OAuth flow to obtain Gmail API credentials.
-    Requires `credentials.json` (OAuth client) in the working directory.
-    Stores user token in `token.json` for reuse.
-    """
-    SCOPES = ['https://www.googleapis.com/auth/gmail.send']
-    token_path = 'token.json'
-    creds = None
-    if os.path.exists(token_path):
-        try:
-            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        except Exception:
-            creds = None
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception:
-                creds = None
-
-    if not creds:
-        if not os.path.exists('credentials.json'):
-            raise FileNotFoundError(
-                '\n❌ credentials.json not found.\n\n'
-                'To set up Gmail OAuth2:\n'
-                '1. Create OAuth credentials in Google Cloud Console\n'
-                '2. Download the JSON file and save it as "credentials.json" in this folder\n'
-                '3. Run: python oauth_setup.py\n\n'
-                'See GMAIL_OAUTH_SETUP.md for detailed instructions.\n'
-                'Or use SMTP with your email password as an alternative.'
-            )
-        try:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-            # Save the credentials for next run
-            with open(token_path, 'w') as f:
-                f.write(creds.to_json())
-        except Exception as e:
-            raise RuntimeError(
-                f'Failed to authenticate with Gmail OAuth:\n{e}\n\n'
-                'Make sure credentials.json is a valid OAuth client credentials file.'
-            )
-    return creds
-
-def get_gmail_credentials_for_smtp():
-    """Get OAuth2 credentials with full mail scope usable for SMTP XOAUTH2."""
-    SCOPES = ['https://mail.google.com/']
-    token_path = 'token_smtp.json'
-    creds = None
-    if os.path.exists(token_path):
-        try:
-            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        except Exception:
-            creds = None
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception:
-                creds = None
-
-    if not creds:
-        if not os.path.exists('credentials.json'):
-            raise FileNotFoundError('credentials.json not found. Create OAuth credentials in Google Cloud Console and save as credentials.json')
-        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        creds = flow.run_local_server(port=0)
-        with open(token_path, 'w') as f:
-            f.write(creds.to_json())
-    return creds
-
-def send_via_smtp_xoauth2(creds, sender, recipient, msg, smtp_host='smtp.gmail.com', smtp_port=587):
-    """Authenticate to SMTP using XOAUTH2 and send message."""
-    # Ensure token is valid
-    if not creds.valid:
-        try:
-            creds.refresh(Request())
-        except Exception:
-            pass
-
-    access_token = creds.token
-    if not access_token:
-        raise ValueError('No access token available')
-
-    auth_string = f'user={sender}\x01auth=Bearer {access_token}\x01\x01'
-    auth_b64 = base64.b64encode(auth_string.encode()).decode()
-
-    # Use STARTTLS on port 587
-    server = smtplib.SMTP(smtp_host, smtp_port)
-    server.ehlo()
-    server.starttls()
-    server.ehlo()
-    code, resp = server.docmd('AUTH', 'XOAUTH2 ' + auth_b64)
-    if code != 235:
-        server.quit()
-        raise RuntimeError(f'SMTP XOAUTH2 authentication failed: {code} {resp}')
-    server.send_message(msg)
-    server.quit()
-
-def send_via_gmail_api(creds, sender, recipient, msg):
-    """Send MIMEMultipart `msg` via Gmail API using `creds`."""
-    service = build('gmail', 'v1', credentials=creds)
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    body = {'raw': raw}
-    return service.users().messages().send(userId='me', body=body).execute()
+# Determine sending behavior: CLI flag, interactive prompt, or skip in non-interactive mode
+if args.cli_send_email:
+    send_email = True
+else:
+    try:
+        print("\nWould you like to send this report via email? (y/n): ", end="")
+        send_email = input().strip().lower() == 'y'
+    except EOFError:
+        send_email = False
 
 if send_email:
     print("\n" + "="*70)
@@ -779,98 +812,25 @@ if send_email:
     msg.attach(part)
 
     # ========================================================
-    # AUTHENTICATION METHOD SELECTION
+    # SEND EMAIL VIA OAUTH2
     # ========================================================
-    print("\n" + "-"*70)
-    print("Authentication Method (RECOMMENDED: OAuth2)")
-    print("-"*70)
-    
-    use_oauth = True
-    auth_method = "oauth"
-    
-    if not GMAIL_API_AVAILABLE:
-        print("⚠️  Gmail OAuth2 not available (missing dependencies)")
-        print("Falling back to SMTP email...")
-        use_oauth = False
-    elif not os.path.exists('credentials.json'):
-        print("\n📝 OAuth2 Requires Setup (First Time Only)")
-        print("\nTo use OAuth2, place 'credentials.json' in this folder:")
-        print("  1. Go to: https://console.cloud.google.com/")
-        print("  2. Create OAuth 2.0 Client ID (Desktop app)")
-        print("  3. Download JSON file → save as 'credentials.json'")
-        print("\nUse SMTP instead? (Gmail App Password - simpler)")
-        choice = input("\nUse OAuth2 (requires setup) or SMTP? [oauth/smtp]: ").strip().lower()
-        
-        if choice in ['oauth', 'o']:
-            print("❌ Cannot proceed without credentials.json")
-            print("   Please set up OAuth credentials and try again.")
-            send_email = False
-            use_oauth = False
-        else:
-            use_oauth = False
-            auth_method = "smtp"
-    else:
-        print("✅ OAuth2 credentials found")
-        print("\n🔐 Secure Email Authentication")
-        print("A browser window will open for you to authorize Gmail access.")
-        print("No passwords will be stored or transmitted unsecurely.\n")
+    print("\n" + "="*70)
+    print("EMAIL DELIVERY (OAuth2)")
+    print("="*70)
 
-    # ========================================================
-    # OAUTH2 METHOD (RECOMMENDED)
-    # ========================================================
-    if send_email and use_oauth:
-        try:
-            print("⏳ Authenticating with Gmail OAuth2...")
-            creds = get_gmail_credentials()
-            print("✓ Authentication successful!")
-            
-            print(f"📧 Sending email to {recipient_email}...")
-            send_via_gmail_api(creds, sender_email, recipient_email, msg)
-            print(f"✅ Email sent successfully!\n")
-            
-        except Exception as e:
-            print(f"❌ OAuth2 failed: {e}")
-            print("\n⚠️  Falling back to SMTP (App Password)...")
-            use_oauth = False
-            auth_method = "smtp"
+    auth = GmailAuth()
     
-    # ========================================================
-    # SMTP FALLBACK (App Password)
-    # ========================================================
-    if send_email and not use_oauth:
-        print("\n" + "-"*70)
-        print("Gmail SMTP Configuration (Using App Password)")
-        print("-"*70)
-        print("\n📝 Setup Instructions (First Time Only):")
-        print("  1. Go to: https://myaccount.google.com/apppasswords")
-        print("  2. Select: Mail → Your Device Type")
-        print("  3. Google generates a 16-character password")
-        print("  4. Copy and paste it below (won't display on screen)")
-        print("\n🔒 Security Note: This password only works for email")
-        
-        try:
-            sender_password = getpass.getpass("\nPaste your Gmail App Password: ").strip()
-            
-            if not sender_password:
-                print("❌ No password provided")
-                send_email = False
-            else:
-                smtp_host = "smtp.gmail.com"
-                smtp_port = 587
-                
-                print(f"\n⏳ Connecting to {smtp_host}:{smtp_port}...")
-                with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-                    server.login(sender_email, sender_password)
-                    server.send_message(msg)
-                print(f"✅ Email sent successfully to {recipient_email}!\n")
-                
-        except Exception as e:
-            print(f"❌ Error sending email: {e}")
-            print("\n💡 Troubleshooting:")
-            print("   - Is the App Password correct? (16 characters)")
-            print("   - Did you enable 2-Step Verification on Google Account?")
-            print("   - Try creating a new App Password")
-            print("   - Check your internet connection")
+    try:
+        auth_method, _ = auth.prompt_authentication_method()
+        print("\n⏳ Opening browser for Google authentication...")
+        auth.send_via_gmail_api(sender_email, recipient_email, msg)
+        print(f"✅ Email sent successfully to {recipient_email}!\n")
+    except FileNotFoundError as e:
+        print(f"\n❌ {e}")
+        send_email = False
+    except Exception as e:
+        print(f"❌ Error sending email: {e}")
+        send_email = False
 
 # -------------------------------------------------------------------
 # 11. Print Summary
@@ -913,3 +873,10 @@ print('  • "What\'s my highest spending category?"')
 print('  • "Analyze my spending patterns and suggest savings"')
 print("\nRuns completely locally - no API keys or internet needed!")
 print("="*70 + "\n")
+
+# Save metrics summary for this run (separate process from the main app)
+try:
+    metrics = get_metrics_logger()
+    metrics.save_metrics_summary()
+except Exception as e:
+    print(f"Note: Could not save metrics for this run: {e}")
